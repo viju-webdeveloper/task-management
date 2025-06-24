@@ -9,10 +9,18 @@ use App\Models\Category;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use App\Http\Repository\TaskRepository;
 
 
 class TaskController extends Controller
 {
+    private $taskRepo;
+
+    public function __construct(TaskRepository $taskRepo)
+    {
+        // Initialize the TaskRepository
+        $this->taskRepo = $taskRepo;
+    }
     /**
      * Display a listing of the tasks.
      *
@@ -22,33 +30,8 @@ class TaskController extends Controller
 
     public function index(Request $request)
     {
-        $user = User::find(Auth::id());
-
-        $query = $user->tasks()->with('category');
-
-        // Search by title or description
-        if ($search = $request->input('search')) {
-            $query->where(function ($q) use ($search) {
-                $q->where('title', 'like', "%{$search}%")
-                  ->orWhere('description', 'like', "%{$search}%");
-            });
-        }
-
-        // Filter by status
-        if ($status = $request->input('status')) {
-            $query->where('status', $status);
-        }
-
-        // Filter by category
-        if ($category = $request->input('category')) {
-            $query->where('category_id', $category);
-        }
-
-        // paginate 10 per page
-        $tasks = $query->paginate(10);
-        $categories = Category::all();
-
-        return view('dashboard', compact('tasks', 'categories'));
+        $tasks = $this->taskRepo->getAllTasks($request);
+        return view('dashboard', $tasks);
     }
 
     /**
@@ -74,8 +57,7 @@ class TaskController extends Controller
     public function store(Request $request)
     {
         try{
-        // Logic to handle task creation
-        $data = $request->validate([
+            $validatedData = $request->validate([
             'title'       => 'required|string|max:255',
             'description' => 'nullable|string',
             'due_date'    => 'nullable|date',
@@ -84,10 +66,10 @@ class TaskController extends Controller
             'category_id' => 'required|exists:categories,id',
         ]);
 
-        $task = new Task($data);
-        $task->user_id = Auth::id();
-        $task->save();
-
+        $createTask = $this->taskRepo->createTask($validatedData);
+        if(!$createTask) {
+            return redirect()->back()->with('error', 'Failed to create task. Please try again.');
+        }
         return redirect()->route('task.create')->with('success', 'Task created successfully!');
         } catch (\Exception $e) {
             Log::error('error', 'Failed to create task: ' . $e->getMessage());
